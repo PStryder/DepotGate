@@ -1,0 +1,339 @@
+
+
+`DepotGate_Input_Artifacts_Spec_v0.1.md`
+
+---
+
+```markdown
+# DepotGate Input Artifacts Spec v0.1
+**Status:** Normative (LegiVellum v1.1 alignment)  
+**Purpose:** Define how all Gates reference and fetch input artifacts without streaming payloads through task APIs.
+
+---
+
+## 1) Purpose
+
+DepotGate is the system’s **authority over artifacts**: the material work products and inputs that must be stored, retrieved, and governed.
+
+This spec adds a required capability:
+
+> **Inputs can include artifacts.**  
+> All Gates that need inputs must be able to **fetch** them via DepotGate, not stream them through task submission.
+
+This enables:
+- non-blocking execution
+- pointer-only tasks and receipts
+- reproducibility and auditability
+- safe integration across primitives
+
+---
+
+## 2) Core Rule (Non-Negotiable)
+
+### 2.1 Pointers over payloads
+
+**Tasks, plans, and receipts MUST NOT carry large payloads.**  
+Instead they carry **artifact references** that DepotGate can resolve and fetch.
+
+- AsyncGate: holds obligations, not bytes
+- MemoryGate: stores pointers and receipts, not artifacts
+- DeleGate: plans reference artifacts, not embed them
+- CogniGate: reads artifacts via DepotGate
+
+### 2.2 Fetch, don’t stream
+
+If a component needs an input artifact, it **fetches** it from DepotGate (or via a DepotGate-resolved handle), rather than:
+- uploading it inline
+- streaming it through MCP tool calls
+- embedding it in JSON bodies
+
+---
+
+## 3) Artifact Reference Model
+
+### 3.1 Canonical Pointer Format
+
+DepotGate defines a canonical pointer string:
+
+```
+
+depot://<tenant_id>/<artifact_id>
+
+````
+
+Where:
+- `tenant_id` is server-assigned from auth context (client MUST NOT spoof)
+- `artifact_id` is an opaque stable identifier (ULID recommended)
+
+### 3.2 ArtifactRef (wire object)
+
+Artifact references passed around the system use this schema:
+
+```json
+{
+  "kind": "depot_pointer" | "external_pointer",
+  "pointer": "depot://tenant/01HX...ABC" | "https://..." | "s3://..." | "gdrive://...",
+  "name": "optional human label",
+  "mime": "optional mime type",
+  "expected_bytes": 123456,
+  "sha256": "optional content hash",
+  "availability": "immediate" | "eventual" | "unknown",
+  "not_before": "optional ISO8601 timestamp",
+  "expires_at": "optional ISO8601 timestamp"
+}
+````
+
+Notes:
+
+* `availability=eventual` is valid for “input will exist later” workflows.
+* `not_before` allows delayed retrieval expectations without blocking.
+* `expires_at` supports ephemeral external sources.
+
+---
+
+## 4) DepotGate Required API Surface
+
+DepotGate MUST expose these operations (MCP tools, REST endpoints, or both).
+Naming is normative; transport is flexible.
+
+### 4.1 `depot.resolve(pointer)`
+
+**Purpose:** Convert a depot pointer into a concrete retrieval handle.
+
+**Input:**
+
+```json
+{ "pointer": "depot://tenant/01HX...ABC" }
+```
+
+**Output:**
+
+```json
+{
+  "pointer": "depot://tenant/01HX...ABC",
+  "resolved": {
+    "mode": "signed_url" | "direct_bytes" | "local_path" | "stream_url",
+    "url": "https://signed.example.com/...",
+    "path": "/mnt/depot/cache/...",
+    "headers": { "Authorization": "Bearer ...", "X-..." : "..." }
+  },
+  "meta": {
+    "mime": "application/pdf",
+    "bytes": 123456,
+    "sha256": "....",
+    "created_at": "ISO8601",
+    "retention_class": "hot" | "cold" | "ephemeral"
+  }
+}
+```
+
+**Rules:**
+
+* `direct_bytes` should only be used for very small artifacts (e.g., <64KB).
+* `signed_url` is preferred for large artifacts.
+* `headers` MUST be returned only when required, and MUST be short-lived.
+
+### 4.2 `depot.fetch(pointer, destination?)`
+
+**Purpose:** Pull an artifact into the caller’s environment without requiring inline streaming.
+
+This is an optional convenience layer when the caller can’t/won’t dereference signed URLs directly.
+
+**Input:**
+
+```json
+{
+  "pointer": "depot://tenant/01HX...ABC",
+  "destination": "optional: local_path | temp | memory"
+}
+```
+
+**Output:**
+
+```json
+{
+  "pointer": "depot://tenant/01HX...ABC",
+  "fetched": {
+    "mode": "local_path" | "bytes",
+    "path": "/tmp/depot/01HX...ABC",
+    "bytes": 12345
+  },
+  "meta": { "mime": "...", "bytes": 12345, "sha256": "..." }
+}
+```
+
+**Rules:**
+
+* `bytes` mode MUST be capped (recommend 64KB).
+* If artifact exceeds cap, return a `signed_url` resolution instead.
+
+### 4.3 `depot.ingest_from(external_pointer, options?)`
+
+**Purpose:** DepotGate pulls from an external source, stores canonically, and returns a depot pointer.
+
+This is the key primitive that enables “inputs may arrive later” workflows without blocking other Gates.
+
+**Input:**
+
+```json
+{
+  "external_pointer": "https://example.com/file.csv",
+  "options": {
+    "name": "optional label",
+    "expected_mime": "text/csv",
+    "expected_sha256": "optional",
+    "retention_class": "hot" | "cold",
+    "access": "private" | "tenant" | "public_link"
+  }
+}
+```
+
+**Output (success):**
+
+```json
+{
+  "pointer": "depot://tenant/01HX...ABC",
+  "meta": { "mime": "text/csv", "bytes": 999, "sha256": "...", "created_at": "..." }
+}
+```
+
+**Output (pending):**
+
+```json
+{
+  "status": "pending",
+  "external_pointer": "https://example.com/file.csv",
+  "retry_after_seconds": 30
+}
+```
+
+**Rules:**
+
+* If the external resource is unavailable, DepotGate MUST return `pending` or a clear error.
+* DepotGate MAY implement background ingestion; but the API MUST support explicit polling.
+
+### 4.4 `depot.stat(pointer)`
+
+**Purpose:** Retrieve metadata and availability without fetching bytes.
+
+**Output includes:**
+
+* existence
+* bytes
+* mime
+* sha256 (if known)
+* created_at
+* retention_class
+* access policy
+
+---
+
+## 5) Failure Semantics (Non-Blocking)
+
+If a Gate attempts to fetch an input artifact and it is unavailable:
+
+* It MUST NOT block indefinitely.
+* It SHOULD:
+
+  * emit a receipt indicating “input missing/unavailable”
+  * requeue with backoff or escalate (policy-defined)
+  * include the ArtifactRef in the receipt for auditability
+
+Recommended error codes:
+
+* `artifact_not_found`
+* `artifact_not_ready`
+* `artifact_expired`
+* `artifact_access_denied`
+* `artifact_too_large`
+* `artifact_fetch_failed`
+
+---
+
+## 6) Security & Isolation
+
+### 6.1 Tenant isolation
+
+* `tenant_id` is server-assigned from auth context.
+* Clients MUST NOT provide or override tenant_id in requests.
+* All pointer resolution MUST be scoped to tenant.
+
+### 6.2 Access control
+
+DepotGate MUST enforce access policy:
+
+* private (caller only)
+* tenant-scoped
+* explicit shared link (optional)
+
+### 6.3 Bounds
+
+DepotGate MUST enforce:
+
+* max artifact size per request (configurable)
+* timeouts
+* content-type allowlists (optional but recommended)
+* maximum redirects for external sources
+* virus/malware scanning hooks (optional now, enterprise later)
+
+---
+
+## 7) Integration Rules by Primitive
+
+### MemoryGate
+
+* Stores pointers only (ArtifactRef in receipts, plans, etc.)
+* Never stores artifact bytes.
+
+### AsyncGate
+
+* Tasks reference artifacts via ArtifactRef.
+* Workers fetch inputs via DepotGate.
+* Results: workers store outputs into DepotGate and return pointers.
+
+### DeleGate
+
+* Plans reference artifacts as inputs and expected outputs.
+* DeleGate may call `depot.stat`/`depot.resolve` to plan accurately.
+* DeleGate MUST NOT embed artifact bytes in Plan.
+
+### CogniGate
+
+* Reads artifacts via DepotGate for analysis/synthesis.
+* Emits receipts when accepting/finishing cognitive obligations, including pointers used.
+
+### InterView
+
+* Viewer primitives MUST NOT fetch artifacts by default.
+* InterView may expose metadata summaries (counts, bytes, mime) but not retrieve contents.
+
+---
+
+## 8) Required Documentation Guarantees
+
+Every DepotGate implementation MUST document:
+
+* pointer schema
+* retention classes
+* max fetch size limits
+* resolution modes supported
+* external source types supported (http/s3/gdrive/etc.)
+* whether ingestion is synchronous or supports pending state
+
+---
+
+## 9) Summary
+
+DepotGate makes artifacts addressable.
+This keeps tasks light, receipts clean, and time neutral.
+
+> **If you need bytes, you fetch them.**
+> **If you need proof, you write receipts.**
+> **If you need durability, you store in DepotGate.**
+
+```
+
+---
+
+If you want, I can also draft a tiny **`ArtifactRef` JSON Schema** and a “how to represent inputs in Plan steps” snippet that matches your Plan-as-primitive model.
+```

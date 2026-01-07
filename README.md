@@ -66,6 +66,15 @@ python -m depotgate.main
 | GET | `/mcp/tools` | List available MCP tools |
 | POST | `/mcp/call` | Execute an MCP tool call |
 
+**Available MCP Tools:**
+- `stage_artifact` - Stage an artifact in DepotGate
+- `list_staged_artifacts` - List artifacts staged for a task
+- `get_artifact` - Get artifact metadata by ID
+- `declare_deliverable` - Declare a deliverable contract
+- `check_closure` - Check if closure requirements are met
+- `ship` - Ship a deliverable (verifies closure first)
+- `purge` - Purge staged artifacts
+
 ## Example Usage
 
 ### 1. Stage an Artifact
