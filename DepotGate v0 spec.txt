@@ -1,0 +1,305 @@
+Excellent. Below is a **clean, self-contained v0 specification** for **DepotGate**, including a clear **“Why DepotGate Exists”** section. This is written to stand on its own as a repo README or RFC-style doc, and to justify DepotGate as both:
+
+* a **LegiVellum primitive**, and
+* a **standalone, reusable tool** for multi-agent systems
+
+No fluff, but the intent is explicit so future-you (or contributors) don’t try to “improve” it into something cursed.
+
+---
+
+# DepotGate v0
+
+## Artifact Staging, Closure, and Outbound Logistics
+
+**Status:** Draft (v0)
+**Category:** Infrastructure Primitive / Standalone Service
+**Applies to:** LegiVellum deployments and general multi-agent systems
+
+---
+
+## Why DepotGate Exists
+
+Distributed and agentic systems fail most often **at the boundary between “work happened” and “results are ready.”**
+
+In asynchronous systems:
+
+* work completes out of order
+* outputs are produced by multiple agents
+* deliverables consist of multiple artifacts
+* planning may recurse
+* and “done” is a *claim*, not a moment
+
+Without a dedicated logistics primitive, systems devolve into one of two bad states:
+
+1. **Premature delivery**
+   Partial or incomplete outputs escape the system because no single component can prove that all obligations are satisfied.
+
+2. **Permanent limbo**
+   Artifacts accumulate, but nothing is ever declared complete because no component is allowed to assert closure.
+
+DepotGate exists to solve exactly this problem—**without becoming a controller, scheduler, or evaluator**.
+
+DepotGate is the place where:
+
+* artifacts are staged,
+* obligations are checked for closure,
+* deliverables are released,
+* and working materials are cleaned up.
+
+It does **not** decide what work should happen.
+It does **not** inspect or judge content.
+It only enforces that **nothing leaves until the paperwork is complete**.
+
+This makes DepotGate useful both:
+
+* inside LegiVellum, and
+* as a standalone logistics service for multi-agent workflows.
+
+---
+
+## Core Principle
+
+> **DepotGate enforces declared closure, not inferred correctness.**
+
+If requirements are declared and met, DepotGate releases.
+If requirements are unmet or undeclared, DepotGate does not guess.
+
+---
+
+## Non-Goals (Hard Boundaries)
+
+DepotGate **MUST NOT**:
+
+* inspect artifact contents
+* transform, compose, or modify artifacts
+* interpret semantic meaning
+* schedule work
+* spawn tasks
+* retry or repair failures
+* infer intent or completeness
+* act as a controller or coordinator
+
+If DepotGate ever “opens the box,” the design has failed.
+
+---
+
+## What DepotGate Does
+
+DepotGate provides four infrastructure functions:
+
+1. **Artifact staging**
+2. **Closure verification**
+3. **Outbound shipping**
+4. **Post-shipment cleanup**
+
+Nothing more.
+
+---
+
+## Concepts
+
+### Artifact
+
+An opaque payload produced by work inside the system.
+
+DepotGate treats artifacts as **sealed containers**.
+
+### Artifact Pointer
+
+A content-opaque reference, including metadata only:
+
+* `artifact_id`
+* `location` (storage-agnostic)
+* `size_bytes`
+* `mime_type`
+* `content_hash` (recommended)
+* `artifact_role` (e.g. `plan`, `final_output`, `supporting`)
+* `tenant_id`
+* `root_task_id`
+* `produced_by_receipt_id`
+
+### Staging Area
+
+A DepotGate-managed namespace where artifacts accumulate while work is in progress.
+
+Artifacts in staging are **not externally visible** unless explicitly retrieved.
+
+### Deliverable
+
+A declared outbound unit consisting of:
+
+* one or more artifacts
+* optional dependency requirements
+* a shipping destination
+
+---
+
+## Plan-as-Artifact Doctrine (Optional but Supported)
+
+Plans MAY be treated as artifacts.
+
+If a plan artifact is declared as part of a deliverable contract, it MUST:
+
+* be staged in DepotGate, and
+* be referenced by the receipts that dispatch child work.
+
+If no plan artifact is declared, DepotGate does not invent one.
+
+---
+
+## Declared Closure Model
+
+DepotGate only enforces **explicitly declared** requirements.
+
+Requirements MAY be declared in:
+
+1. a plan artifact (preferred), or
+2. a parent receipt (fallback, v0-friendly)
+
+Requirements MAY include:
+
+* required child task IDs
+* required artifact roles
+* required artifact pointers
+* required receipt phases (e.g. completion)
+
+DepotGate does **not** infer missing requirements.
+
+---
+
+## Shipping Preconditions
+
+DepotGate MUST NOT ship a deliverable unless:
+
+1. The parent obligation is complete
+2. All declared required child obligations are resolved
+3. All declared required artifacts are present in staging
+
+If no requirements are declared, DepotGate assumes **no requirements exist**.
+
+This is deliberate.
+
+---
+
+## Interfaces (Logical)
+
+### `stage_put(...) -> artifact_pointer`
+
+Stages an artifact and returns its pointer.
+
+Emits a receipt indicating artifact staging.
+
+---
+
+### `stage_list(root_task_id, ...) -> [artifact_pointer]`
+
+Lists artifacts currently staged for a task lineage.
+
+---
+
+### `declare_deliverable(root_task_id, deliverable_spec) -> deliverable_id`
+
+Registers a deliverable contract, including optional requirements.
+
+---
+
+### `ship(root_task_id, deliverable_id) -> shipment_manifest`
+
+If closure conditions are met:
+
+* assembles a shipment manifest
+* transfers artifacts to configured outbound sink(s)
+* emits a shipment receipt
+
+If conditions are not met:
+
+* rejects the request
+* emits a rejection receipt with unmet requirements
+
+---
+
+### `purge(root_task_id, policy) -> purge_receipt`
+
+Cleans up staged artifacts according to retention policy after shipment.
+
+---
+
+## Receipts Emitted
+
+DepotGate emits boundary receipts only:
+
+* `artifact_staged`
+* `shipment_rejected`
+* `shipment_complete`
+* `purged`
+
+Receipts include:
+
+* causality linkage
+* artifact pointers
+* observed requirement state
+* policy version (if applicable)
+
+---
+
+## Storage Substrate
+
+DepotGate is **storage-agnostic**.
+
+It may use:
+
+* filesystem
+* object store
+* MemoryGate
+* hybrid models
+
+Only the artifact pointer contract is normative.
+
+---
+
+## Standalone Deployment Use Case
+
+DepotGate can be deployed independently to support:
+
+* multiple agents writing outputs
+* asynchronous task completion
+* multi-artifact deliverables
+* strict “nothing leaves until complete” semantics
+
+In this mode:
+
+* agents stage artifacts as they work
+* an external orchestrator (human or system) declares deliverables
+* DepotGate enforces closure and ships results
+
+No planning, no scheduling, no intelligence required.
+
+---
+
+## Why DepotGate Is a Primitive (Not Just a Helper)
+
+Without DepotGate, systems must choose between:
+
+* allowing partial results to escape, or
+* inventing implicit control logic to decide when work is “done”
+
+Both options introduce hidden intelligence and ambiguity.
+
+DepotGate provides a **mechanical, auditable alternative**:
+
+* closure is declared
+* closure is verified
+* shipment is conditional
+* cleanup is explicit
+
+That makes correctness possible **without cognition**.
+
+---
+
+## Final Doctrine
+
+> **DepotGate is logistics, not intelligence.
+> It enforces closure, not meaning.
+> It ships boxes, not ideas.**
+
+That is why it exists.

@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: depotgate-postgres
+    environment:
+      POSTGRES_USER: depotgate
+      POSTGRES_PASSWORD: depotgate
+      POSTGRES_DB: depotgate_metadata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U depotgate"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  depotgate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: depotgate
+    ports:
+      - "8000:8000"
+    environment:
+      DEPOTGATE_POSTGRES_HOST: postgres
+      DEPOTGATE_POSTGRES_PORT: 5432
+      DEPOTGATE_POSTGRES_USER: depotgate
+      DEPOTGATE_POSTGRES_PASSWORD: depotgate
+      DEPOTGATE_POSTGRES_METADATA_DB: depotgate_metadata
+      DEPOTGATE_POSTGRES_RECEIPTS_DB: depotgate_receipts
+      DEPOTGATE_STORAGE_BASE_PATH: /app/data/staging
+      DEPOTGATE_SINK_FILESYSTEM_BASE_PATH: /app/data/shipped
+      DEPOTGATE_DEBUG: "false"
+    volumes:
+      - staging_data:/app/data/staging
+      - shipped_data:/app/data/shipped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  staging_data:
+  shipped_data:
