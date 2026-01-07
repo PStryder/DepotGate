@@ -28,6 +28,38 @@ class FilesystemSink(OutboundSink):
     def sink_type(self) -> str:
         return "filesystem"
 
+    def _sanitize_destination(self, destination: str) -> Path:
+        """Sanitize and validate destination path.
+        
+        SECURITY: Prevents path traversal in shipping destinations.
+        
+        Args:
+            destination: Requested destination path
+            
+        Returns:
+            Validated destination path within base_path
+            
+        Raises:
+            ValueError: If destination contains traversal attempts or is absolute
+        """
+        # Reject absolute paths
+        if destination.startswith("/"):
+            raise ValueError("Absolute destination paths not allowed for security")
+        
+        # Remove path traversal attempts
+        safe_dest = destination.replace("..", "_")
+        
+        # Construct full path
+        dest_path = (self.base_path / safe_dest).resolve()
+        
+        # SECURITY: Verify resolved path is within base_path
+        try:
+            dest_path.relative_to(self.base_path.resolve())
+        except ValueError:
+            raise ValueError(f"Path traversal attempt detected in destination: {destination}")
+        
+        return dest_path
+
     async def ship(
         self,
         artifacts: list[ArtifactPointer],
@@ -35,12 +67,12 @@ class FilesystemSink(OutboundSink):
         manifest: ShipmentManifest,
         artifact_content_getter: Callable[[UUID], Coroutine[Any, Any, bytes]],
     ) -> dict[str, str]:
-        """Ship artifacts to filesystem destination."""
-        # Parse destination - could be absolute or relative to base_path
-        if destination.startswith("/"):
-            dest_path = Path(destination)
-        else:
-            dest_path = self.base_path / destination
+        """Ship artifacts to filesystem destination.
+        
+        SECURITY: Destination is sanitized to prevent path traversal.
+        """
+        # Sanitize and validate destination
+        dest_path = self._sanitize_destination(destination)
 
         # Create destination directory structure
         # Organize by manifest_id for traceability
@@ -70,17 +102,16 @@ class FilesystemSink(OutboundSink):
         return destination_refs
 
     async def validate_destination(self, destination: str) -> bool:
-        """Validate filesystem destination."""
+        """Validate filesystem destination.
+        
+        SECURITY: Uses same sanitization as ship() to ensure consistency.
+        """
         try:
-            if destination.startswith("/"):
-                dest_path = Path(destination)
-            else:
-                dest_path = self.base_path / destination
-
+            dest_path = self._sanitize_destination(destination)
             # Check if we can create the directory (or it exists)
             dest_path.mkdir(parents=True, exist_ok=True)
             return True
-        except (OSError, PermissionError):
+        except (ValueError, OSError, PermissionError):
             return False
 
     def _get_extension(self, mime_type: str) -> str:
