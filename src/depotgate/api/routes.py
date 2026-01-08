@@ -1,5 +1,6 @@
 """FastAPI routes for DepotGate API."""
 
+import json
 from typing import Annotated
 from uuid import UUID
 
@@ -21,7 +22,6 @@ from depotgate.core.models import (
     Receipt,
     ShipmentManifest,
     ShipRequest,
-    StageArtifactRequest,
     HealthResponse,
 )
 from depotgate.core.receipts import ReceiptStore
@@ -95,12 +95,17 @@ async def stage_artifact(
     Upload a file to the staging area. Returns an artifact pointer.
     """
     try:
-        content = await file.read()
         mime_type = file.content_type or "application/octet-stream"
+        async def content_stream():
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                yield chunk
 
         pointer = await staging.stage_artifact(
             root_task_id=root_task_id,
-            content=content,
+            content=content_stream(),
             mime_type=mime_type,
             artifact_role=artifact_role,
             produced_by_receipt_id=produced_by_receipt_id,
@@ -112,8 +117,12 @@ async def stage_artifact(
 
 @router.post("/stage/bytes", response_model=ArtifactPointer, dependencies=[Depends(verify_api_key)])
 async def stage_artifact_bytes(
-    request: StageArtifactRequest,
-    content: bytes = File(...),
+    root_task_id: str = Form(...),
+    content: UploadFile = File(...),
+    mime_type: str = Form("application/octet-stream"),
+    artifact_role: ArtifactRole = Form(ArtifactRole.SUPPORTING),
+    produced_by_receipt_id: str | None = Form(None),
+    metadata: str | None = Form(None),
     staging: StagingArea = Depends(get_staging_area),
 ):
     """
@@ -122,13 +131,27 @@ async def stage_artifact_bytes(
     Alternative endpoint for programmatic uploads.
     """
     try:
+        metadata_dict = {}
+        if metadata:
+            try:
+                metadata_dict = json.loads(metadata)
+            except json.JSONDecodeError as e:
+                raise HTTPException(status_code=400, detail=f"Invalid metadata JSON: {e}")
+
+        async def content_stream():
+            while True:
+                chunk = await content.read(1024 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+
         pointer = await staging.stage_artifact(
-            root_task_id=request.root_task_id,
-            content=content,
-            mime_type=request.mime_type,
-            artifact_role=request.artifact_role,
-            produced_by_receipt_id=request.produced_by_receipt_id,
-            metadata=request.metadata,
+            root_task_id=root_task_id,
+            content=content_stream(),
+            mime_type=mime_type,
+            artifact_role=artifact_role,
+            produced_by_receipt_id=produced_by_receipt_id,
+            metadata=metadata_dict,
         )
         return pointer
     except ValueError as e:
