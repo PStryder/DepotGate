@@ -85,6 +85,10 @@ class Settings(BaseSettings):
         """Parse comma-separated sink list."""
         return [s.strip() for s in self.enabled_sinks.split(",") if s.strip()]
 
+    # Authentication
+    api_key: str = ""
+    allow_insecure_dev: bool = False
+
 
 # Global settings instance
 settings = Settings()

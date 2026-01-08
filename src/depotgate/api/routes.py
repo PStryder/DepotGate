@@ -27,6 +27,7 @@ from depotgate.core.receipts import ReceiptStore
 from depotgate.core.shipping import ClosureNotMetError, ShippingError, ShippingService
 from depotgate.core.staging import StagingArea
 from depotgate.db.connection import metadata_session_dependency, receipts_session_dependency
+from depotgate.auth import verify_api_key
 
 router = APIRouter(prefix="/api/v1", tags=["depotgate"])
 
@@ -64,7 +65,7 @@ async def get_receipt_store(
 # ============================================================================
 
 
-@router.post("/stage", response_model=ArtifactPointer)
+@router.post("/stage", response_model=ArtifactPointer, dependencies=[Depends(verify_api_key)])
 async def stage_artifact(
     file: UploadFile = File(...),
     root_task_id: str = Form(...),
@@ -93,7 +94,7 @@ async def stage_artifact(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/stage/bytes", response_model=ArtifactPointer)
+@router.post("/stage/bytes", response_model=ArtifactPointer, dependencies=[Depends(verify_api_key)])
 async def stage_artifact_bytes(
     request: StageArtifactRequest,
     content: bytes = File(...),
@@ -118,7 +119,7 @@ async def stage_artifact_bytes(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/stage/list", response_model=list[ArtifactPointer])
+@router.get("/stage/list", response_model=list[ArtifactPointer], dependencies=[Depends(verify_api_key)])
 async def list_staged_artifacts(
     root_task_id: str = Query(...),
     artifact_role: ArtifactRole | None = Query(None),
@@ -133,7 +134,7 @@ async def list_staged_artifacts(
     )
 
 
-@router.get("/stage/{artifact_id}", response_model=ArtifactPointer)
+@router.get("/stage/{artifact_id}", response_model=ArtifactPointer, dependencies=[Depends(verify_api_key)])
 async def get_artifact(
     artifact_id: UUID,
     staging: StagingArea = Depends(get_staging_area),
@@ -147,7 +148,7 @@ async def get_artifact(
     return pointer
 
 
-@router.get("/stage/{artifact_id}/content")
+@router.get("/stage/{artifact_id}/content", dependencies=[Depends(verify_api_key)])
 async def get_artifact_content(
     artifact_id: UUID,
     staging: StagingArea = Depends(get_staging_area),
@@ -178,7 +179,7 @@ async def get_artifact_content(
 # ============================================================================
 
 
-@router.post("/deliverables", response_model=Deliverable)
+@router.post("/deliverables", response_model=Deliverable, dependencies=[Depends(verify_api_key)])
 async def declare_deliverable(
     request: DeclareDeliverableRequest,
     manager: DeliverableManager = Depends(get_deliverable_manager),
@@ -194,7 +195,7 @@ async def declare_deliverable(
     )
 
 
-@router.get("/deliverables", response_model=list[Deliverable])
+@router.get("/deliverables", response_model=list[Deliverable], dependencies=[Depends(verify_api_key)])
 async def list_deliverables(
     root_task_id: str = Query(...),
     status: str | None = Query(None),
@@ -209,7 +210,7 @@ async def list_deliverables(
     )
 
 
-@router.get("/deliverables/{deliverable_id}", response_model=Deliverable)
+@router.get("/deliverables/{deliverable_id}", response_model=Deliverable, dependencies=[Depends(verify_api_key)])
 async def get_deliverable(
     deliverable_id: UUID,
     manager: DeliverableManager = Depends(get_deliverable_manager),
@@ -223,7 +224,7 @@ async def get_deliverable(
     return deliverable
 
 
-@router.get("/deliverables/{deliverable_id}/closure", response_model=ClosureStatus)
+@router.get("/deliverables/{deliverable_id}/closure", response_model=ClosureStatus, dependencies=[Depends(verify_api_key)])
 async def check_closure(
     deliverable_id: UUID,
     manager: DeliverableManager = Depends(get_deliverable_manager),
@@ -244,7 +245,7 @@ async def check_closure(
 # ============================================================================
 
 
-@router.post("/ship", response_model=ShipmentManifest)
+@router.post("/ship", response_model=ShipmentManifest, dependencies=[Depends(verify_api_key)])
 async def ship_deliverable(
     request: ShipRequest,
     shipping: ShippingService = Depends(get_shipping_service),
@@ -280,7 +281,7 @@ async def ship_deliverable(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/shipments", response_model=list[ShipmentManifest])
+@router.get("/shipments", response_model=list[ShipmentManifest], dependencies=[Depends(verify_api_key)])
 async def list_shipments(
     root_task_id: str = Query(...),
     shipping: ShippingService = Depends(get_shipping_service),
@@ -291,7 +292,7 @@ async def list_shipments(
     return await shipping.list_shipments(root_task_id=root_task_id)
 
 
-@router.get("/shipments/{manifest_id}", response_model=ShipmentManifest)
+@router.get("/shipments/{manifest_id}", response_model=ShipmentManifest, dependencies=[Depends(verify_api_key)])
 async def get_shipment(
     manifest_id: UUID,
     shipping: ShippingService = Depends(get_shipping_service),
@@ -310,7 +311,7 @@ async def get_shipment(
 # ============================================================================
 
 
-@router.post("/purge", response_model=list[str])
+@router.post("/purge", response_model=list[str], dependencies=[Depends(verify_api_key)])
 async def purge_artifacts(
     request: PurgeRequest,
     shipping: ShippingService = Depends(get_shipping_service),
@@ -333,7 +334,7 @@ async def purge_artifacts(
 # ============================================================================
 
 
-@router.get("/receipts", response_model=list[Receipt])
+@router.get("/receipts", response_model=list[Receipt], dependencies=[Depends(verify_api_key)])
 async def list_receipts(
     root_task_id: str | None = Query(None),
     receipt_type: str | None = Query(None),
@@ -360,7 +361,7 @@ async def list_receipts(
     )
 
 
-@router.get("/receipts/{receipt_id}", response_model=Receipt)
+@router.get("/receipts/{receipt_id}", response_model=Receipt, dependencies=[Depends(verify_api_key)])
 async def get_receipt(
     receipt_id: UUID,
     store: ReceiptStore = Depends(get_receipt_store),
