@@ -1,0 +1,59 @@
+Below is a comprehensive code review of the DepotGate repo. I did not make any code changes.
+
+Methodology (commands reviewed)
+Examined service setup and middleware via sed -n/nl -ba on src/depotgate/main.py.
+
+Reviewed API endpoints (including staging and shipping flows) via sed -n/nl -ba on src/depotgate/api/routes.py.
+
+Inspected core business logic for staging, deliverables, and closure checks using sed -n/nl -ba on src/depotgate/core/staging.py and src/depotgate/core/deliverables.py.
+
+Reviewed storage and sink implementations and tests using sed -n/nl -ba on src/depotgate/storage/filesystem.py, src/depotgate/sinks/*.py, and tests/test_sinks.py.
+
+Strengths
+Separation of concerns: The API layer delegates to core domain services (StagingArea, DeliverableManager, ShippingService) cleanly, which makes the design easier to test and extend.
+
+Defense-in-depth for filesystem safety: Both storage and filesystem sink sanitize and validate paths to guard against traversal attacks before writing artifacts or shipments.
+
+Event receipts are consistently emitted: Receipts are produced for major actions (staging, shipping, purge), which is helpful for auditing and traceability.
+
+Findings
+1) Potential memory exhaustion when staging artifacts (High)
+Where: POST /api/v1/stage reads the entire upload into memory (await file.read()), and the storage size limit is only enforced after the full content has been loaded into RAM by the caller.
+Impact: Large uploads can exhaust memory or significantly degrade performance before size limits are applied.
+Recommendation: Stream the file into storage (e.g., read in chunks and pass an async iterator), enforcing storage_max_artifact_bytes during streaming to prevent memory blowups.
+
+2) /stage/bytes endpoint likely fails due to body/file mismatch (High)
+Where: stage_artifact_bytes declares a Pydantic body model (StageArtifactRequest) and a File parameter. This combination typically yields a 422 because FastAPI expects JSON for the model, but multipart form for files.
+Impact: The endpoint is likely unusable for clients, breaking programmatic uploads.
+Recommendation: Convert the model fields to Form(...) inputs or change the endpoint to accept JSON-only content with base64 encoding (similar to MCP).
+
+3) CORS configuration is insecure/invalid when credentials are allowed (Medium)
+Where: The app allows allow_origins=["*"] together with allow_credentials=True. This is disallowed by browsers and can also create security risk if credentials are ever enabled.
+Impact: Browsers will reject credentialed requests with wildcard origins, and the configuration invites cross-origin leakage if credentials are introduced later.
+Recommendation: Either disable credentials or explicitly list allowed origins.
+
+4) Filesystem sink validation conflicts with tests and intended behavior (Medium)
+Where: _sanitize_destination rejects absolute paths, but tests expect absolute destinations to be accepted in validate_destination.
+Impact: Tests will fail (or production behavior will differ from tests). It’s unclear whether absolute paths should be allowed.
+Recommendation: Decide on one policy—either update tests to reflect the security constraint, or revise _sanitize_destination to allow absolute paths that remain under base_path.
+
+5) RECEIPT_PHASE closure requirements are effectively always met (Low)
+Where: RequirementType.RECEIPT_PHASE checks simply return len(staged_artifacts) > 0, regardless of phase or receipts.
+Impact: Deliverables may be incorrectly marked closed even when the intended receipt phase is not satisfied.
+Recommendation: Query receipts for the specific phase or remove RECEIPT_PHASE until it is properly implemented.
+
+6) HTTP sink has SSRF/exfiltration risk and unbounded payload size (Medium)
+Where: HttpSink.ship accepts any URL with http/https scheme and posts full artifact contents base64-encoded, with no allowlist or size guard in the sink itself.
+Impact: Misconfiguration could allow SSRF to internal services, and large artifact payloads can cause significant memory/network costs.
+Recommendation: Add destination allowlists/denylist logic and consider enforcing maximum payload size or streaming/chunked uploads.
+
+Suggested Next Steps (Prioritized)
+Fix /stage/bytes input handling and add streaming in /stage to avoid memory exhaustion.
+
+Clarify CORS policy and restrict origins or disable credentials.
+
+Resolve filesystem sink destination policy so tests and code agree.
+
+Harden HTTP sink with allowlisting and size limits.
+
+Implement proper receipt-phase closure checks or remove the placeholder logic.

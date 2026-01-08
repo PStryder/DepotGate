@@ -91,10 +91,25 @@ class HttpSink(OutboundSink):
 
         return destination_refs
 
+    def _is_allowed_host(self, hostname: str | None) -> bool:
+        """Check if hostname is allowed for HTTP sink destinations."""
+        if not hostname:
+            return False
+        allowed_hosts = [h.lower() for h in settings.sink_http_allowed_hosts]
+        if not allowed_hosts:
+            return False
+        if "*" in allowed_hosts:
+            return True
+        return hostname.lower() in allowed_hosts
+
     async def validate_destination(self, destination: str) -> bool:
         """Validate HTTP destination URL."""
         try:
             parsed = urlparse(destination)
-            return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+            if parsed.scheme not in settings.sink_http_allowed_schemes:
+                return False
+            if not parsed.netloc:
+                return False
+            return self._is_allowed_host(parsed.hostname)
         except Exception:
             return False

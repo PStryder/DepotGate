@@ -8,6 +8,22 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 
+# =============================================================================
+# Health & Service Models
+# =============================================================================
+
+class HealthResponse(BaseModel):
+    """Standard health check response"""
+    status: str
+    service: str = "DepotGate"
+    version: str
+    instance_id: str
+
+
+# =============================================================================
+# Domain Models
+# =============================================================================
+
 class ArtifactRole(str, Enum):
     """Role classification for artifacts."""
 

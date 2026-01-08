@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,14 +22,30 @@ from depotgate.core.models import (
     ShipmentManifest,
     ShipRequest,
     StageArtifactRequest,
+    HealthResponse,
 )
 from depotgate.core.receipts import ReceiptStore
 from depotgate.core.shipping import ClosureNotMetError, ShippingError, ShippingService
 from depotgate.core.staging import StagingArea
 from depotgate.db.connection import metadata_session_dependency, receipts_session_dependency
 from depotgate.auth import verify_api_key
+from depotgate.middleware import get_rate_limiter
 
-router = APIRouter(prefix="/api/v1", tags=["depotgate"])
+router = APIRouter(
+    prefix="/api/v1", 
+    tags=["depotgate"],
+    dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)]
+)
+
+
+# Rate limiting dependency
+async def rate_limit_dependency(request: Request) -> None:
+    """Rate limiting dependency."""
+    limiter = get_rate_limiter(
+        calls_per_minute=settings.rate_limit_requests_per_minute,
+        enabled=settings.rate_limit_enabled
+    )
+    await limiter.check_request(request)
 
 
 # Dependency injection helpers
@@ -65,7 +81,7 @@ async def get_receipt_store(
 # ============================================================================
 
 
-@router.post("/stage", response_model=ArtifactPointer, dependencies=[Depends(verify_api_key)])
+@router.post("/stage", response_model=ArtifactPointer)
 async def stage_artifact(
     file: UploadFile = File(...),
     root_task_id: str = Form(...),
@@ -380,10 +396,15 @@ async def get_receipt(
 # ============================================================================
 
 
-@router.get("/health")
+@router.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "service": settings.service_name}
+    return HealthResponse(
+        status="healthy",
+        service="DepotGate",
+        version="0.1.0",
+        instance_id=settings.instance_id
+    )
 
 
 @router.get("/info")
