@@ -16,6 +16,11 @@ from depotgate.core.models import (
 )
 from depotgate.core.receipts import ReceiptStore
 from depotgate.core.staging import StagingArea
+from depotgate.receipt_emitter import (
+    emit_purge_receipt,
+    emit_shipment_complete_receipt,
+    emit_shipment_rejected_receipt,
+)
 from depotgate.db.models import ArtifactRecord, ShipmentRecord
 from depotgate.sinks.factory import get_sink_for_destination
 from depotgate.storage.factory import get_storage_backend
@@ -106,6 +111,15 @@ class ShippingService:
                 unmet_requirements=closure_status.unmet_requirements,
                 reason="Closure requirements not met",
             )
+            await emit_shipment_rejected_receipt(
+                tenant_id=tenant_id,
+                root_task_id=root_task_id,
+                deliverable_id=deliverable_id,
+                unmet_requirements=closure_status.unmet_requirements,
+                reason="Closure requirements not met",
+                caused_by=None,
+                metadata=deliverable.spec.metadata if deliverable else None,
+            )
             await self.deliverables.mark_rejected(deliverable_id, tenant_id)
             raise ClosureNotMetError(deliverable_id, closure_status.unmet_requirements)
 
@@ -166,6 +180,13 @@ class ShippingService:
             tenant_id=tenant_id,
             root_task_id=root_task_id,
             manifest=manifest,
+        )
+        await emit_shipment_complete_receipt(
+            tenant_id=tenant_id,
+            root_task_id=root_task_id,
+            manifest=manifest,
+            caused_by=None,
+            metadata=deliverable.spec.metadata if deliverable else None,
         )
 
         return manifest
@@ -258,6 +279,14 @@ class ShippingService:
             root_task_id=root_task_id,
             purged_artifact_ids=purged_ids,
             policy=policy,
+        )
+        await emit_purge_receipt(
+            tenant_id=tenant_id,
+            root_task_id=root_task_id,
+            purged_artifact_ids=purged_ids,
+            policy=policy,
+            caused_by=None,
+            metadata=None,
         )
 
         return purged_ids

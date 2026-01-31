@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from depotgate.config import settings
 from depotgate.core.models import ArtifactPointer, ArtifactRole
 from depotgate.core.receipts import ReceiptStore
+from depotgate.receipt_emitter import emit_artifact_staged_receipt
 from depotgate.db.models import ArtifactRecord
 from depotgate.storage.base import StorageBackend
 from depotgate.storage.factory import get_storage_backend
@@ -112,6 +113,13 @@ class StagingArea:
             root_task_id=root_task_id,
             artifact_pointer=pointer,
             caused_by=produced_by_receipt_id,
+        )
+        await emit_artifact_staged_receipt(
+            tenant_id=tenant_id,
+            root_task_id=root_task_id,
+            artifact_pointer=pointer,
+            caused_by=produced_by_receipt_id,
+            metadata=metadata,
         )
 
         return pointer

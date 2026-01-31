@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Any
 from uuid import UUID
+import re
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +32,7 @@ class ReceiptStore:
 
     async def store_receipt(self, receipt: Receipt) -> Receipt:
         """Store a receipt and return it with updated fields."""
+        payload = self._sanitize_payload(receipt.payload)
         record = ReceiptRecord(
             receipt_id=receipt.receipt_id,
             receipt_type=receipt.receipt_type,
@@ -38,11 +40,28 @@ class ReceiptStore:
             root_task_id=receipt.root_task_id,
             timestamp=receipt.timestamp,
             caused_by_receipt_id=receipt.caused_by_receipt_id,
-            payload_json=receipt.payload,
+            payload_json=payload,
         )
         self.session.add(record)
         await self.session.flush()
         return receipt
+
+    def _sanitize_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Redact sensitive patterns from receipt payloads before storage."""
+        def _sanitize(value: Any) -> Any:
+            if isinstance(value, str):
+                value = re.sub(r"/[A-Za-z0-9._\-/]+", "[PATH]", value)
+                value = re.sub(r"[A-Za-z0-9_\-]{32,}", "[REDACTED_TOKEN]", value)
+                return value
+            if isinstance(value, list):
+                return [_sanitize(item) for item in value]
+            if isinstance(value, dict):
+                return {k: _sanitize(v) for k, v in value.items()}
+            return value
+
+        if not isinstance(payload, dict):
+            return payload
+        return _sanitize(payload)
 
     async def get_receipt(self, receipt_id: UUID) -> Receipt | None:
         """Retrieve a receipt by ID."""

@@ -20,6 +20,7 @@ os.environ["DEPOTGATE_POSTGRES_USER"] = "depotgate"
 os.environ["DEPOTGATE_POSTGRES_PASSWORD"] = "depotgate"
 os.environ["DEPOTGATE_POSTGRES_METADATA_DB"] = "depotgate_metadata_test"
 os.environ["DEPOTGATE_POSTGRES_RECEIPTS_DB"] = "depotgate_receipts_test"
+os.environ["DEPOTGATE_ALLOW_INSECURE_DEV"] = "true"
 
 from depotgate.config import settings
 from depotgate.db.models import MetadataBase, ReceiptsBase

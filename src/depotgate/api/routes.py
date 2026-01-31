@@ -1,6 +1,7 @@
 """FastAPI routes for DepotGate API."""
 
 import json
+import re
 from typing import Annotated
 from uuid import UUID
 
@@ -31,12 +32,6 @@ from depotgate.db.connection import metadata_session_dependency, receipts_sessio
 from depotgate.auth import verify_api_key
 from depotgate.middleware import get_rate_limiter
 
-router = APIRouter(
-    prefix="/api/v1", 
-    tags=["depotgate"],
-    dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)]
-)
-
 
 # Rate limiting dependency
 async def rate_limit_dependency(request: Request) -> None:
@@ -46,6 +41,39 @@ async def rate_limit_dependency(request: Request) -> None:
         enabled=settings.rate_limit_enabled
     )
     await limiter.check_request(request)
+
+
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["depotgate"],
+    dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)],
+)
+
+_ROOT_TASK_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
+_ULID_RE = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
+
+
+def _validate_root_task_id(value: str) -> str:
+    if not value or not _ROOT_TASK_ID_RE.match(value):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid root_task_id (allowed: A-Z a-z 0-9 _ - , max 256 chars)",
+        )
+    return value
+
+
+def _validate_receipt_id(value: str | None) -> str | None:
+    if value is None or value == "NA":
+        return value
+    try:
+        UUID(value)
+    except ValueError:
+        if not _ULID_RE.match(value):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid produced_by_receipt_id format (expected UUID or ULID)",
+            )
+    return value
 
 
 # Dependency injection helpers
@@ -95,12 +123,24 @@ async def stage_artifact(
     Upload a file to the staging area. Returns an artifact pointer.
     """
     try:
+        root_task_id = _validate_root_task_id(root_task_id)
+        produced_by_receipt_id = _validate_receipt_id(produced_by_receipt_id)
+
         mime_type = file.content_type or "application/octet-stream"
+        max_size = settings.storage_max_artifact_bytes
+        if hasattr(file, "size") and max_size > 0 and file.size and file.size > max_size:
+            raise HTTPException(status_code=413, detail="Artifact exceeds size limit")
+
+        size = 0
         async def content_stream():
+            nonlocal size
             while True:
                 chunk = await file.read(1024 * 1024)
                 if not chunk:
                     break
+                size += len(chunk)
+                if max_size > 0 and size > max_size:
+                    raise HTTPException(status_code=413, detail="Artifact exceeds size limit")
                 yield chunk
 
         pointer = await staging.stage_artifact(
@@ -131,6 +171,9 @@ async def stage_artifact_bytes(
     Alternative endpoint for programmatic uploads.
     """
     try:
+        root_task_id = _validate_root_task_id(root_task_id)
+        produced_by_receipt_id = _validate_receipt_id(produced_by_receipt_id)
+
         metadata_dict = {}
         if metadata:
             try:
@@ -138,11 +181,20 @@ async def stage_artifact_bytes(
             except json.JSONDecodeError as e:
                 raise HTTPException(status_code=400, detail=f"Invalid metadata JSON: {e}")
 
+        max_size = settings.storage_max_artifact_bytes
+        if hasattr(content, "size") and max_size > 0 and content.size and content.size > max_size:
+            raise HTTPException(status_code=413, detail="Artifact exceeds size limit")
+
+        size = 0
         async def content_stream():
+            nonlocal size
             while True:
                 chunk = await content.read(1024 * 1024)
                 if not chunk:
                     break
+                size += len(chunk)
+                if max_size > 0 and size > max_size:
+                    raise HTTPException(status_code=413, detail="Artifact exceeds size limit")
                 yield chunk
 
         pointer = await staging.stage_artifact(
@@ -167,6 +219,7 @@ async def list_staged_artifacts(
     """
     List artifacts staged for a task.
     """
+    root_task_id = _validate_root_task_id(root_task_id)
     return await staging.list_artifacts(
         root_task_id=root_task_id,
         artifact_role=artifact_role,
@@ -228,6 +281,7 @@ async def declare_deliverable(
 
     Registers a deliverable with its requirements and shipping destination.
     """
+    _validate_root_task_id(request.root_task_id)
     return await manager.declare_deliverable(
         root_task_id=request.root_task_id,
         spec=request.spec,
@@ -243,6 +297,7 @@ async def list_deliverables(
     """
     List deliverables for a task.
     """
+    root_task_id = _validate_root_task_id(root_task_id)
     return await manager.list_deliverables(
         root_task_id=root_task_id,
         status=status,
@@ -296,6 +351,7 @@ async def ship_deliverable(
     Returns a shipment manifest on success.
     """
     try:
+        _validate_root_task_id(request.root_task_id)
         return await shipping.ship(
             root_task_id=request.root_task_id,
             deliverable_id=request.deliverable_id,
@@ -328,6 +384,7 @@ async def list_shipments(
     """
     List shipments for a task.
     """
+    root_task_id = _validate_root_task_id(root_task_id)
     return await shipping.list_shipments(root_task_id=root_task_id)
 
 
@@ -360,6 +417,7 @@ async def purge_artifacts(
 
     Cleans up artifacts according to the specified policy.
     """
+    _validate_root_task_id(request.root_task_id)
     purged_ids = await shipping.purge(
         root_task_id=request.root_task_id,
         policy=request.policy,

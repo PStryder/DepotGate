@@ -7,10 +7,11 @@ DepotGate using the standard MCP tool-calling pattern.
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from depotgate import __version__
 from depotgate.config import settings
 from depotgate.core.deliverables import DeliverableManager
 from depotgate.core.models import (
@@ -21,11 +22,35 @@ from depotgate.core.models import (
 from depotgate.core.shipping import ClosureNotMetError, ShippingError, ShippingService
 from depotgate.core.staging import StagingArea
 from depotgate.db.connection import metadata_session_dependency, receipts_session_dependency
+from depotgate.auth import verify_api_key
+from depotgate.middleware import get_rate_limiter
 
-router = APIRouter(prefix="/mcp", tags=["mcp"])
+
+async def rate_limit_dependency(request: Request) -> None:
+    """Rate limiting dependency for MCP routes."""
+    limiter = get_rate_limiter(
+        calls_per_minute=settings.rate_limit_requests_per_minute,
+        enabled=settings.rate_limit_enabled,
+    )
+    await limiter.check_request(request)
+
+router = APIRouter(
+    prefix="/mcp",
+    tags=["mcp"],
+    dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)],
+)
 
 
 # MCP Request/Response Models
+
+
+class MCPRequest(BaseModel):
+    """JSON-RPC request envelope for MCP."""
+
+    jsonrpc: str = Field(default="2.0")
+    method: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    id: Any = None
 
 
 class MCPToolCall(BaseModel):
@@ -51,6 +76,25 @@ class MCPToolsListResponse(BaseModel):
 
 # Tool definitions for MCP
 MCP_TOOLS = [
+    {
+        "name": "depotgate.health",
+        "description": "Health check / service info",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "depotgate.get_deliverable",
+        "description": "Get a deliverable by ID.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "deliverable_id": {
+                    "type": "string",
+                    "description": "Deliverable UUID",
+                },
+            },
+            "required": ["deliverable_id"],
+        },
+    },
     {
         "name": "stage_artifact",
         "description": "Stage an artifact in DepotGate. Returns an artifact pointer.",
@@ -230,7 +274,19 @@ async def get_shipping_service(
     return ShippingService(metadata_session, receipts_session)
 
 
-# MCP Endpoints
+def _jsonrpc_result(request_id: Any, result: Any) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+def _jsonrpc_error(request_id: Any, code: Any, message: str) -> dict[str, Any]:
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {"code": code, "message": message},
+    }
+
+
+# Legacy MCP endpoints (tool list + tool call)
 
 
 @router.get("/tools", response_model=MCPToolsListResponse)
@@ -245,48 +301,88 @@ async def call_tool(
     metadata_session: AsyncSession = Depends(metadata_session_dependency),
     receipts_session: AsyncSession = Depends(receipts_session_dependency),
 ):
-    """
-    Execute an MCP tool call.
+    """Execute a legacy MCP tool call."""
+    return await _dispatch_tool(call, metadata_session, receipts_session)
 
-    This is the main entry point for AI agents to interact with DepotGate.
-    """
+
+# MCP JSON-RPC endpoint
+
+
+@router.post("")
+async def mcp_entry(
+    request: MCPRequest,
+    metadata_session: AsyncSession = Depends(metadata_session_dependency),
+    receipts_session: AsyncSession = Depends(receipts_session_dependency),
+):
+    """Handle MCP JSON-RPC requests."""
+    if request.method == "tools/list":
+        return _jsonrpc_result(request.id, {"tools": MCP_TOOLS})
+
+    if request.method != "tools/call":
+        return _jsonrpc_error(request.id, -32601, f"Method not found: {request.method}")
+
+    params = request.params or {}
+    tool_name = params.get("name")
+    arguments = params.get("arguments") or {}
+    if not tool_name:
+        return _jsonrpc_error(request.id, -32602, "Missing tool name")
+
+    call = MCPToolCall(tool=tool_name, arguments=arguments)
+    result = await _dispatch_tool(call, metadata_session, receipts_session)
+    if result.success:
+        return _jsonrpc_result(request.id, result.result)
+    return _jsonrpc_error(request.id, "TOOL_ERROR", result.error or "Unknown error")
+
+
+async def _dispatch_tool(
+    call: MCPToolCall,
+    metadata_session: AsyncSession,
+    receipts_session: AsyncSession,
+) -> MCPToolResult:
+    """Execute a tool call and return MCPToolResult."""
     staging = StagingArea(metadata_session, receipts_session)
     deliverables = DeliverableManager(metadata_session, receipts_session)
     shipping = ShippingService(metadata_session, receipts_session)
 
     try:
+        if call.tool == "depotgate.health":
+            return MCPToolResult(
+                success=True,
+                result={
+                    "status": "healthy",
+                    "service": "DepotGate",
+                    "version": __version__,
+                    "instance_id": settings.instance_id,
+                },
+            )
+
+        if call.tool in {"depotgate.get_deliverable", "get_deliverable"}:
+            return await _handle_get_deliverable(deliverables, call.arguments)
+
         if call.tool == "stage_artifact":
             return await _handle_stage_artifact(staging, call.arguments)
 
-        elif call.tool == "list_staged_artifacts":
+        if call.tool == "list_staged_artifacts":
             return await _handle_list_staged(staging, call.arguments)
 
-        elif call.tool == "get_artifact":
+        if call.tool == "get_artifact":
             return await _handle_get_artifact(staging, call.arguments)
 
-        elif call.tool == "declare_deliverable":
+        if call.tool == "declare_deliverable":
             return await _handle_declare_deliverable(deliverables, call.arguments)
 
-        elif call.tool == "check_closure":
+        if call.tool == "check_closure":
             return await _handle_check_closure(deliverables, call.arguments)
 
-        elif call.tool == "ship":
+        if call.tool == "ship":
             return await _handle_ship(shipping, call.arguments)
 
-        elif call.tool == "purge":
+        if call.tool == "purge":
             return await _handle_purge(shipping, call.arguments)
 
-        else:
-            return MCPToolResult(
-                success=False,
-                error=f"Unknown tool: {call.tool}",
-            )
-
-    except Exception as e:
-        return MCPToolResult(
-            success=False,
-            error=str(e),
-        )
+        return MCPToolResult(success=False, error=f"Unknown tool: {call.tool}")
+    except Exception as exc:
+        return MCPToolResult(success=False, error=str(exc))
 
 
 async def _handle_stage_artifact(
@@ -315,6 +411,29 @@ async def _handle_stage_artifact(
             "size_bytes": pointer.size_bytes,
             "content_hash": pointer.content_hash,
             "artifact_role": pointer.artifact_role.value,
+        },
+    )
+
+
+async def _handle_get_deliverable(
+    manager: DeliverableManager,
+    args: dict[str, Any],
+) -> MCPToolResult:
+    """Handle get_deliverable tool call."""
+    deliverable = await manager.get_deliverable(UUID(args["deliverable_id"]))
+    if deliverable is None:
+        return MCPToolResult(success=False, error="Deliverable not found")
+
+    return MCPToolResult(
+        success=True,
+        result={
+            "deliverable_id": str(deliverable.deliverable_id),
+            "root_task_id": deliverable.root_task_id,
+            "tenant_id": deliverable.tenant_id,
+            "status": deliverable.status,
+            "declared_at": deliverable.declared_at.isoformat() if deliverable.declared_at else None,
+            "shipped_at": deliverable.shipped_at.isoformat() if deliverable.shipped_at else None,
+            "spec": deliverable.spec.model_dump(mode="json"),
         },
     )
 

@@ -63,8 +63,9 @@ python -m depotgate.main
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/mcp/tools` | List available MCP tools |
-| POST | `/mcp/call` | Execute an MCP tool call |
+| POST | `/mcp` | JSON-RPC endpoint (`tools/list`, `tools/call`) |
+| GET | `/mcp/tools` | Legacy: list available MCP tools |
+| POST | `/mcp/call` | Legacy: execute an MCP tool call |
 
 **Available MCP Tools:**
 - `stage_artifact` - Stage an artifact in DepotGate
@@ -74,6 +75,8 @@ python -m depotgate.main
 - `check_closure` - Check if closure requirements are met
 - `ship` - Ship a deliverable (verifies closure first)
 - `purge` - Purge staged artifacts
+ - `depotgate.health` - Health check / service info
+ - `depotgate.get_deliverable` - Fetch a deliverable by ID
 
 ## Example Usage
 
@@ -121,10 +124,10 @@ curl -X POST http://localhost:8000/api/v1/ship \
 import httpx
 import base64
 
-# List available tools
+# List available tools (legacy)
 tools = httpx.get("http://localhost:8000/mcp/tools").json()
 
-# Stage an artifact
+# Stage an artifact (legacy)
 response = httpx.post("http://localhost:8000/mcp/call", json={
     "tool": "stage_artifact",
     "arguments": {
@@ -132,6 +135,22 @@ response = httpx.post("http://localhost:8000/mcp/call", json={
         "content_base64": base64.b64encode(b"result data").decode(),
         "mime_type": "application/json",
         "artifact_role": "final_output"
+    }
+})
+
+# JSON-RPC equivalent
+rpc_response = httpx.post("http://localhost:8000/mcp", json={
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+        "name": "stage_artifact",
+        "arguments": {
+            "root_task_id": "agent-task-1",
+            "content_base64": base64.b64encode(b\"result data\").decode(),
+            "mime_type": "application/json",
+            "artifact_role": "final_output"
+        }
     }
 })
 ```
@@ -146,10 +165,12 @@ Environment variables (prefix: `DEPOTGATE_`):
 | `PORT` | 8000 | Service port |
 | `DEBUG` | false | Enable debug mode |
 | `TENANT_ID` | default | Single tenant identifier |
+| `SERVICE_PRINCIPAL_ID` | svc:depotgate | Service principal identifier |
+| `DEFAULT_RECIPIENT_AI` | svc:depotgate | Default recipient AI for emitted receipts |
 | `POSTGRES_HOST` | localhost | PostgreSQL host |
 | `POSTGRES_PORT` | 5432 | PostgreSQL port |
 | `POSTGRES_USER` | depotgate | Database user |
-| `POSTGRES_PASSWORD` | depotgate | Database password |
+| `POSTGRES_PASSWORD` | depotgate_local | Database password |
 | `POSTGRES_METADATA_DB` | depotgate_metadata | Metadata database |
 | `POSTGRES_RECEIPTS_DB` | depotgate_receipts | Receipts database |
 | `STORAGE_BACKEND` | filesystem | Storage backend type |
@@ -157,6 +178,13 @@ Environment variables (prefix: `DEPOTGATE_`):
 | `STORAGE_MAX_ARTIFACT_SIZE_MB` | 100 | Max artifact size (0=unlimited) |
 | `ENABLED_SINKS` | filesystem | Comma-separated sink list |
 | `SINK_FILESYSTEM_BASE_PATH` | ./data/shipped | Shipped artifacts directory |
+| `RECEIPTGATE_ENDPOINT` |  | ReceiptGate MCP endpoint |
+| `RECEIPTGATE_AUTH_TOKEN` |  | ReceiptGate auth token |
+| `RECEIPTGATE_EMIT_RECEIPTS` | true | Emit LegiVellum receipts to ReceiptGate |
+| `RECEIPTGATE_TIMEOUT_SECONDS` | 10 | ReceiptGate request timeout |
+
+ReceiptGate integration emits LegiVellum receipts for artifact staging,
+shipment completion/rejection, and purge operations when enabled.
 
 ## Architecture
 
