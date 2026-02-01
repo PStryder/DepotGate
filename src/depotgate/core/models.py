@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # =============================================================================
@@ -36,6 +36,8 @@ class ArtifactRole(str, Enum):
 class ArtifactPointer(BaseModel):
     """Content-opaque reference to a staged artifact."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     artifact_id: UUID = Field(default_factory=uuid4)
     location: str  # Storage-agnostic location reference
     size_bytes: int
@@ -46,9 +48,6 @@ class ArtifactPointer(BaseModel):
     root_task_id: str
     produced_by_receipt_id: str | None = None
     staged_at: datetime = Field(default_factory=datetime.utcnow)
-
-    class Config:
-        from_attributes = True
 
 
 class RequirementType(str, Enum):
@@ -81,6 +80,8 @@ class DeliverableSpec(BaseModel):
 class Deliverable(BaseModel):
     """A declared deliverable with its contract."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     deliverable_id: UUID = Field(default_factory=uuid4)
     root_task_id: str
     tenant_id: str
@@ -88,9 +89,6 @@ class Deliverable(BaseModel):
     declared_at: datetime = Field(default_factory=datetime.utcnow)
     shipped_at: datetime | None = None
     status: str = "pending"  # pending, shipped, rejected
-
-    class Config:
-        from_attributes = True
 
 
 class ShipmentManifest(BaseModel):
@@ -137,6 +135,8 @@ class ReceiptType(str, Enum):
 class Receipt(BaseModel):
     """Base receipt model for DepotGate events."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     receipt_id: UUID = Field(default_factory=uuid4)
     receipt_type: ReceiptType
     tenant_id: str
@@ -144,9 +144,6 @@ class Receipt(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     caused_by_receipt_id: str | None = None  # Causality linkage
     payload: dict[str, Any] = Field(default_factory=dict)
-
-    class Config:
-        from_attributes = True
 
 
 class ArtifactStagedReceipt(Receipt):
