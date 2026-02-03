@@ -12,8 +12,7 @@ DepotGate is an infrastructure primitive for managing artifact delivery in async
 # Start PostgreSQL and DepotGate
 docker-compose up -d
 
-# Service available at http://localhost:8000
-# API docs at http://localhost:8000/docs
+# Service available at http://localhost:8000/mcp (MCP JSON-RPC)
 ```
 
 ### Local Development

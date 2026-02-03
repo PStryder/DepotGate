@@ -1,7 +1,7 @@
 """
-Authentication for DepotGate REST API.
+Authentication for DepotGate MCP HTTP requests.
 
-Simple API key authentication for protecting API endpoints.
+Simple API key authentication for protecting MCP endpoints.
 """
 
 import logging
