@@ -56,6 +56,20 @@ def _resolve_principal(metadata: dict[str, Any] | None) -> str:
     return settings.default_recipient_ai or settings.service_principal_id
 
 
+def _artifact_ref(pointer: ArtifactPointer) -> dict[str, Any]:
+    return {
+        "artifact_id": str(pointer.artifact_id),
+        "uri": pointer.location,
+        "size_bytes": pointer.size_bytes,
+        "mime": pointer.mime_type,
+        "checksum": pointer.content_hash or "NA",
+        "role": pointer.artifact_role.value,
+        "tenant_id": pointer.tenant_id,
+        "root_task_id": pointer.root_task_id,
+        "produced_by_receipt_id": pointer.produced_by_receipt_id,
+    }
+
+
 def _serialize_requirements(requirements: list[ClosureRequirement]) -> list[dict[str, Any]]:
     return [
         {
@@ -90,6 +104,8 @@ def _build_receipt(
     caused_by_receipt_id: str | None,
     dedupe_key: str,
     metadata: dict[str, Any],
+    body: dict[str, Any],
+    artifact_refs: list[dict[str, Any]],
     completed_at: datetime | None,
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
@@ -127,6 +143,8 @@ def _build_receipt(
         "escalation_reason": "NA",
         "escalation_to": "NA",
         "retry_requested": False,
+        "body": body,
+        "artifact_refs": artifact_refs,
         "created_at": _iso(now),
         "stored_at": None,
         "started_at": None,
@@ -189,6 +207,14 @@ def build_artifact_staged_receipt(
         caused_by_receipt_id=caused_by,
         dedupe_key=f"artifact:{artifact_pointer.artifact_id}",
         metadata=receipt_metadata,
+        body={
+            "event": "artifact_staged",
+            "root_task_id": root_task_id,
+            "artifact": _artifact_ref(artifact_pointer),
+            "produced_by_receipt_id": artifact_pointer.produced_by_receipt_id,
+            "metadata": metadata or {},
+        },
+        artifact_refs=[_artifact_ref(artifact_pointer)],
         completed_at=datetime.now(timezone.utc),
     )
 
@@ -214,6 +240,8 @@ def build_shipment_complete_receipt(
     }
     if metadata:
         receipt_metadata["client_metadata"] = metadata
+
+    artifact_refs = [_artifact_ref(pointer) for pointer in manifest.artifacts]
 
     return _build_receipt(
         tenant_id=tenant_id,
@@ -244,6 +272,17 @@ def build_shipment_complete_receipt(
         caused_by_receipt_id=caused_by,
         dedupe_key=f"shipment:{manifest.manifest_id}",
         metadata=receipt_metadata,
+        body={
+            "event": "shipment_complete",
+            "root_task_id": root_task_id,
+            "deliverable_id": str(manifest.deliverable_id),
+            "manifest_id": str(manifest.manifest_id),
+            "destination": manifest.destination,
+            "artifact_count": len(manifest.artifacts),
+            "destination_refs": manifest.destination_refs,
+            "metadata": metadata or {},
+        },
+        artifact_refs=artifact_refs,
         completed_at=datetime.now(timezone.utc),
     )
 
@@ -291,6 +330,15 @@ def build_shipment_rejected_receipt(
         caused_by_receipt_id=caused_by,
         dedupe_key=f"shipment_rejected:{deliverable_id}",
         metadata=receipt_metadata,
+        body={
+            "event": "shipment_rejected",
+            "root_task_id": root_task_id,
+            "deliverable_id": str(deliverable_id),
+            "reason": reason or "Shipment rejected",
+            "unmet_requirements": _serialize_requirements(unmet_requirements),
+            "metadata": metadata or {},
+        },
+        artifact_refs=[],
         completed_at=datetime.now(timezone.utc),
     )
 
@@ -342,5 +390,13 @@ def build_purge_receipt(
         caused_by_receipt_id=caused_by,
         dedupe_key=f"purge:{root_task_id}:{policy.value}:{len(artifact_ids)}",
         metadata=receipt_metadata,
+        body={
+            "event": "purged",
+            "root_task_id": root_task_id,
+            "purged_artifact_ids": artifact_ids,
+            "purge_policy": policy.value,
+            "metadata": metadata or {},
+        },
+        artifact_refs=[{"artifact_id": aid} for aid in artifact_ids],
         completed_at=datetime.now(timezone.utc),
     )
