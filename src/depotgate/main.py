@@ -8,7 +8,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from depotgate import __version__
-from depotgate.api.routes import router as api_router
 from depotgate.config import settings
 from depotgate.db.connection import close_databases, init_databases
 from depotgate.mcp.routes import router as mcp_router
@@ -48,22 +47,8 @@ def create_app() -> FastAPI:
         allow_headers=settings.cors_allowed_headers,
     )
 
-    # Include API routes
-    app.include_router(api_router)
-
     # Include MCP routes
     app.include_router(mcp_router)
-
-    # Root redirect to docs
-    @app.get("/")
-    async def root():
-        return {
-            "service": "DepotGate",
-            "version": __version__,
-            "docs": "/docs",
-            "api": "/api/v1",
-            "mcp": "/mcp",
-        }
 
     return app
 

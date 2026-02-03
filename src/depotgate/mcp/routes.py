@@ -7,7 +7,7 @@ DepotGate using the standard MCP tool-calling pattern.
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,12 +66,6 @@ class MCPToolResult(BaseModel):
     success: bool
     result: Any = None
     error: str | None = None
-
-
-class MCPToolsListResponse(BaseModel):
-    """Response listing available MCP tools."""
-
-    tools: list[dict[str, Any]]
 
 
 # Tool definitions for MCP
@@ -284,25 +278,6 @@ def _jsonrpc_error(request_id: Any, code: Any, message: str) -> dict[str, Any]:
         "id": request_id,
         "error": {"code": code, "message": message},
     }
-
-
-# Legacy MCP endpoints (tool list + tool call)
-
-
-@router.get("/tools", response_model=MCPToolsListResponse)
-async def list_tools():
-    """List available MCP tools."""
-    return MCPToolsListResponse(tools=MCP_TOOLS)
-
-
-@router.post("/call", response_model=MCPToolResult)
-async def call_tool(
-    call: MCPToolCall,
-    metadata_session: AsyncSession = Depends(metadata_session_dependency),
-    receipts_session: AsyncSession = Depends(receipts_session_dependency),
-):
-    """Execute a legacy MCP tool call."""
-    return await _dispatch_tool(call, metadata_session, receipts_session)
 
 
 # MCP JSON-RPC endpoint

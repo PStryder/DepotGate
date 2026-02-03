@@ -30,42 +30,11 @@ cp .env.example .env
 python -m depotgate.main
 ```
 
-## API Endpoints
+## MCP Interface
 
-### Staging (`/api/v1/stage`)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/stage` | Stage an artifact (multipart upload) |
-| GET | `/stage/list` | List staged artifacts for a task |
-| GET | `/stage/{artifact_id}` | Get artifact metadata |
-| GET | `/stage/{artifact_id}/content` | Download artifact content |
-
-### Deliverables (`/api/v1/deliverables`)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/deliverables` | Declare a deliverable contract |
-| GET | `/deliverables` | List deliverables for a task |
-| GET | `/deliverables/{id}` | Get deliverable details |
-| GET | `/deliverables/{id}/closure` | Check closure status |
-
-### Shipping (`/api/v1`)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/ship` | Ship a deliverable (if closure met) |
-| GET | `/shipments` | List shipments for a task |
-| GET | `/shipments/{id}` | Get shipment manifest |
-| POST | `/purge` | Purge staged artifacts |
-
-### MCP Interface (`/mcp`)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/mcp` | JSON-RPC endpoint (`tools/list`, `tools/call`) |
-| GET | `/mcp/tools` | Legacy: list available MCP tools |
-| POST | `/mcp/call` | Legacy: execute an MCP tool call |
+DepotGate exposes MCP over HTTP at `/mcp` with JSON-RPC methods:
+- `tools/list`
+- `tools/call`
 
 **Available MCP Tools:**
 - `stage_artifact` - Stage an artifact in DepotGate
@@ -75,84 +44,52 @@ python -m depotgate.main
 - `check_closure` - Check if closure requirements are met
 - `ship` - Ship a deliverable (verifies closure first)
 - `purge` - Purge staged artifacts
- - `depotgate.health` - Health check / service info
- - `depotgate.get_deliverable` - Fetch a deliverable by ID
+- `depotgate.health` - Health check / service info
+- `depotgate.get_deliverable` - Fetch a deliverable by ID
 
 ## Example Usage
 
-### 1. Stage an Artifact
-
-```bash
-curl -X POST http://localhost:8000/api/v1/stage \
-  -F "file=@output.json" \
-  -F "root_task_id=task-123" \
-  -F "artifact_role=final_output"
-```
-
-### 2. Declare a Deliverable
-
-```bash
-curl -X POST http://localhost:8000/api/v1/deliverables \
-  -H "Content-Type: application/json" \
-  -d '{
-    "root_task_id": "task-123",
-    "spec": {
-      "artifact_roles": ["final_output"],
-      "shipping_destination": "filesystem://output"
-    }
-  }'
-```
-
-### 3. Check Closure and Ship
-
-```bash
-# Check closure status
-curl http://localhost:8000/api/v1/deliverables/{deliverable_id}/closure
-
-# Ship if ready
-curl -X POST http://localhost:8000/api/v1/ship \
-  -H "Content-Type: application/json" \
-  -d '{
-    "root_task_id": "task-123",
-    "deliverable_id": "..."
-  }'
-```
-
-### MCP Usage (for AI Agents)
+### MCP JSON-RPC
 
 ```python
 import httpx
 import base64
 
-# List available tools (legacy)
-tools = httpx.get("http://localhost:8000/mcp/tools").json()
-
-# Stage an artifact (legacy)
-response = httpx.post("http://localhost:8000/mcp/call", json={
-    "tool": "stage_artifact",
-    "arguments": {
-        "root_task_id": "agent-task-1",
-        "content_base64": base64.b64encode(b"result data").decode(),
-        "mime_type": "application/json",
-        "artifact_role": "final_output"
-    }
-})
-
-# JSON-RPC equivalent
-rpc_response = httpx.post("http://localhost:8000/mcp", json={
+# Stage an artifact
+payload = {
     "jsonrpc": "2.0",
     "id": 1,
     "method": "tools/call",
     "params": {
         "name": "stage_artifact",
         "arguments": {
-            "root_task_id": "agent-task-1",
-            "content_base64": base64.b64encode(b\"result data\").decode(),
+            "root_task_id": "task-123",
+            "content_base64": base64.b64encode(b"result data").decode(),
             "mime_type": "application/json",
-            "artifact_role": "final_output"
-        }
-    }
-})
+            "artifact_role": "final_output",
+        },
+    },
+}
+
+response = httpx.post("http://localhost:8000/mcp", json=payload).json()
+artifact_id = response["result"]["artifact_id"]
+
+# Declare a deliverable
+declare_payload = {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {
+        "name": "declare_deliverable",
+        "arguments": {
+            "root_task_id": "task-123",
+            "artifact_ids": [artifact_id],
+            "shipping_destination": "filesystem://output",
+        },
+    },
+}
+
+deliverable = httpx.post("http://localhost:8000/mcp", json=declare_payload).json()
 ```
 
 ## Configuration
@@ -193,8 +130,8 @@ shipment completion/rejection, and purge operations when enabled.
 │                        DepotGate                            │
 ├─────────────────────────────────────────────────────────────┤
 │  API Layer (FastAPI)                                        │
-│  ├── /api/v1/* - REST endpoints                            │
-│  └── /mcp/*    - MCP interface                             │
+│  ├── /mcp      - MCP JSON-RPC                            │
+│  └── (tools/list, tools/call)                             │
 ├─────────────────────────────────────────────────────────────┤
 │  Core Services                                              │
 │  ├── StagingArea      - Artifact storage management        │
