@@ -1,3 +1,5 @@
+LEGACY NOTE (2026-02-03): DepotGate is MCP-only. REST endpoint references in this review are historical.
+
 Below is a comprehensive code review of the DepotGate repo. I did not make any code changes.
 
 Methodology (commands reviewed)

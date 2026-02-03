@@ -1,4 +1,4 @@
-"""FastAPI routes for DepotGate API."""
+"""FastAPI routes for DepotGate REST API (LEGACY, not mounted)."""
 
 import json
 import re

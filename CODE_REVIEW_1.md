@@ -1,3 +1,5 @@
+> LEGACY NOTE (2026-02-03): DepotGate is MCP-only. REST endpoint references are historical.
+
 # DepotGate Code Review
 
 **Review Date:** January 8, 2026
