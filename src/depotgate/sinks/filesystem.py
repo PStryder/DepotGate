@@ -40,17 +40,15 @@ class FilesystemSink(OutboundSink):
             Validated destination path within base_path
             
         Raises:
-            ValueError: If destination contains traversal attempts or is absolute
+            ValueError: If destination resolves outside base_path
         """
-        # Reject absolute paths
-        if destination.startswith("/"):
-            raise ValueError("Absolute destination paths not allowed for security")
-        
-        # Remove path traversal attempts
-        safe_dest = destination.replace("..", "_")
-        
-        # Construct full path
-        dest_path = (self.base_path / safe_dest).resolve()
+        dest = Path(destination)
+        if dest.is_absolute():
+            dest_path = dest.resolve()
+        else:
+            # Remove traversal attempts from relative destinations.
+            safe_dest = destination.replace("..", "_")
+            dest_path = (self.base_path / safe_dest).resolve()
         
         # SECURITY: Verify resolved path is within base_path
         try:
