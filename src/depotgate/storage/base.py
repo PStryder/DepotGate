@@ -48,7 +48,7 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
-    async def retrieve_stream(self, location: str) -> AsyncIterator[bytes]:
+    def retrieve_stream(self, location: str) -> AsyncIterator[bytes]:
         """
         Retrieve artifact content as a stream.
 

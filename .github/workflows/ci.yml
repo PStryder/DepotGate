@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Dependency health
+        run: python -m pip check
+
+      - name: Compile check
+        run: python -m compileall -q src/depotgate
+
+      - name: Ruff (full repo)
+        run: ruff check src/depotgate --select E9,F63,F7,F82
+
+      - name: Mypy (full repo)
+        run: python -m mypy --config-file .mypy-ci.ini src/depotgate
+
+      - name: Run tests with coverage gate
+        run: |
+          pytest -q --maxfail=1 \
+            --cov=depotgate \
+            --cov-report=term \
+            --cov-fail-under=55
+
+      - name: Docker build
+        run: docker build -t depotgate-ci .
