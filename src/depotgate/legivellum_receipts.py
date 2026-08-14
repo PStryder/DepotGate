@@ -17,11 +17,11 @@ try:
 except ImportError:
     CanonicalReceipt = None
     generate_receipt_id = None
-    candidate_roots = [
-        Path(__file__).resolve().parents[3] / "LegiVellum" / "shared",
-        Path(__file__).resolve().parents[4] / "LegiVellum" / "shared",
-    ]
-    for shared_root in candidate_roots:
+    # Walk every real ancestor rather than indexing fixed depths: in a container
+    # the module sits too shallow for parents[4] and blind indexing raises
+    # IndexError at import time, taking the whole service down.
+    for parent in Path(__file__).resolve().parents:
+        shared_root = parent / "LegiVellum" / "shared"
         if shared_root.exists():
             sys.path.append(str(shared_root))
             try:
