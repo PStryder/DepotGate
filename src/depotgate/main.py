@@ -11,6 +11,7 @@ from depotgate import __version__
 from depotgate.config import settings
 from depotgate.db.connection import close_databases, init_databases
 from depotgate.mcp.routes import router as mcp_router
+from depotgate.metagate_client import acknowledge_startup, bootstrap_from_metagate
 
 
 @asynccontextmanager
@@ -18,6 +19,14 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
     await init_databases()
+
+    # Resolve peer endpoints from MetaGate before anything that uses them.
+    # Best-effort by design: a failure must never prevent startup, or the
+    # bootstrap authority becomes a hidden master.
+    _bootstrap = await bootstrap_from_metagate(settings)
+    if _bootstrap is not None and _bootstrap.succeeded:
+        await acknowledge_startup(settings, _bootstrap)
+
 
     # Ensure storage directories exist
     settings.storage_base_path.mkdir(parents=True, exist_ok=True)
