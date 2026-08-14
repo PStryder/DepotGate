@@ -16,14 +16,17 @@ async def test_mcp_tools_list(async_client: AsyncClient):
     assert "result" in data
     tools = data["result"]["tools"]
 
-    # Verify expected tools exist
+    # Every advertised tool must be namespaced: docs/canonical/mcp.naming.md
+    # requires <service>.<verb>, and an unprefixed name in tools/list is what
+    # a compatible client would copy.
     tool_names = [t["name"] for t in tools]
-    assert "stage_artifact" in tool_names
-    assert "list_staged_artifacts" in tool_names
-    assert "declare_deliverable" in tool_names
-    assert "check_closure" in tool_names
-    assert "ship" in tool_names
-    assert "purge" in tool_names
+    assert "depotgate.stage_artifact" in tool_names
+    assert "depotgate.list_staged_artifacts" in tool_names
+    assert "depotgate.declare_deliverable" in tool_names
+    assert "depotgate.check_closure" in tool_names
+    assert "depotgate.ship" in tool_names
+    assert "depotgate.purge" in tool_names
+    assert all(name.startswith("depotgate.") for name in tool_names), tool_names
 
 
 @pytest.mark.asyncio
@@ -176,3 +179,39 @@ async def test_mcp_workflow(async_client: AsyncClient):
     )
     assert "result" in ship_response.json()
     assert "manifest_id" in ship_response.json()["result"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_unprefixed_tool_names_still_dispatch(async_client: AsyncClient):
+    """Renaming the advertised tools must not break existing callers.
+
+    InterView and the demo scripts still call the bare names; they are accepted
+    but no longer advertised, so new clients learn the canonical form.
+    """
+    response = await async_client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "list_staged_artifacts", "arguments": {"root_task_id": "no-such-task"}},
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    # Reaches the handler rather than falling through to "Unknown tool".
+    assert "Unknown tool" not in str(body)
+
+
+@pytest.mark.asyncio
+async def test_unknown_tool_is_still_rejected(async_client: AsyncClient):
+    response = await async_client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "definitely_not_a_tool", "arguments": {}},
+        },
+    )
+    assert "Unknown tool" in str(response.json())

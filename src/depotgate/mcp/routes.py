@@ -90,7 +90,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "stage_artifact",
+        "name": "depotgate.stage_artifact",
         "description": "Stage an artifact in DepotGate. Returns an artifact pointer.",
         "inputSchema": {
             "type": "object",
@@ -123,7 +123,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "list_staged_artifacts",
+        "name": "depotgate.list_staged_artifacts",
         "description": "List artifacts staged for a task.",
         "inputSchema": {
             "type": "object",
@@ -142,7 +142,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "get_artifact",
+        "name": "depotgate.get_artifact",
         "description": "Get artifact metadata by ID.",
         "inputSchema": {
             "type": "object",
@@ -156,7 +156,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "declare_deliverable",
+        "name": "depotgate.declare_deliverable",
         "description": "Declare a deliverable contract with requirements and shipping destination.",
         "inputSchema": {
             "type": "object",
@@ -187,7 +187,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "check_closure",
+        "name": "depotgate.check_closure",
         "description": "Check if closure requirements are met for a deliverable.",
         "inputSchema": {
             "type": "object",
@@ -201,7 +201,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "ship",
+        "name": "depotgate.ship",
         "description": "Ship a deliverable. Verifies closure and transfers artifacts.",
         "inputSchema": {
             "type": "object",
@@ -219,7 +219,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "purge",
+        "name": "depotgate.purge",
         "description": "Purge staged artifacts.",
         "inputSchema": {
             "type": "object",
@@ -309,18 +309,42 @@ async def mcp_entry(
     return _jsonrpc_error(request.id, "TOOL_ERROR", result.error or "Unknown error")
 
 
+# Tools were originally exposed unprefixed, which docs/canonical/mcp.naming.md
+# forbids: service-owned tools MUST be namespaced. The canonical names are what
+# tools/list advertises; the bare forms are still accepted so existing callers
+# keep working, normalized here rather than by widening every dispatch branch.
+_LEGACY_TOOL_ALIASES = {
+    "stage_artifact",
+    "list_staged_artifacts",
+    "get_artifact",
+    "get_deliverable",
+    "declare_deliverable",
+    "check_closure",
+    "ship",
+    "purge",
+}
+
+
+def _canonical_tool_name(tool: str) -> str:
+    """Map a legacy unprefixed tool name onto its canonical form."""
+    if tool in _LEGACY_TOOL_ALIASES:
+        return f"depotgate.{tool}"
+    return tool
+
+
 async def _dispatch_tool(
     call: MCPToolCall,
     metadata_session: AsyncSession,
     receipts_session: AsyncSession,
 ) -> MCPToolResult:
     """Execute a tool call and return MCPToolResult."""
+    tool = _canonical_tool_name(call.tool)
     staging = StagingArea(metadata_session, receipts_session)
     deliverables = DeliverableManager(metadata_session, receipts_session)
     shipping = ShippingService(metadata_session, receipts_session)
 
     try:
-        if call.tool == "depotgate.health":
+        if tool == "depotgate.health":
             return MCPToolResult(
                 success=True,
                 result={
@@ -331,28 +355,28 @@ async def _dispatch_tool(
                 },
             )
 
-        if call.tool in {"depotgate.get_deliverable", "get_deliverable"}:
+        if tool == "depotgate.get_deliverable":
             return await _handle_get_deliverable(deliverables, call.arguments)
 
-        if call.tool == "stage_artifact":
+        if tool == "depotgate.stage_artifact":
             return await _handle_stage_artifact(staging, call.arguments)
 
-        if call.tool == "list_staged_artifacts":
+        if tool == "depotgate.list_staged_artifacts":
             return await _handle_list_staged(staging, call.arguments)
 
-        if call.tool == "get_artifact":
+        if tool == "depotgate.get_artifact":
             return await _handle_get_artifact(staging, call.arguments)
 
-        if call.tool == "declare_deliverable":
+        if tool == "depotgate.declare_deliverable":
             return await _handle_declare_deliverable(deliverables, call.arguments)
 
-        if call.tool == "check_closure":
+        if tool == "depotgate.check_closure":
             return await _handle_check_closure(deliverables, call.arguments)
 
-        if call.tool == "ship":
+        if tool == "depotgate.ship":
             return await _handle_ship(shipping, call.arguments)
 
-        if call.tool == "purge":
+        if tool == "depotgate.purge":
             return await _handle_purge(shipping, call.arguments)
 
         return MCPToolResult(success=False, error=f"Unknown tool: {call.tool}")
