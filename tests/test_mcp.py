@@ -1,5 +1,7 @@
 """Tests for MCP interface."""
 
+import os
+
 import pytest
 from httpx import AsyncClient
 
@@ -215,3 +217,55 @@ async def test_unknown_tool_is_still_rejected(async_client: AsyncClient):
         },
     )
     assert "Unknown tool" in str(response.json())
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    not os.environ.get("DEPOTGATE_TEST_DATABASE"),
+    reason="Set DEPOTGATE_TEST_DATABASE=1 with a provisioned database to run",
+)
+async def test_list_staged_artifacts_carries_location_and_hash(async_client: AsyncClient):
+    """A listing that drops pointer and hash cannot support the artifact claim.
+
+    stage_artifact returned location and content_hash while the listing did
+    not, so InterView's artifact inventory showed nulls for both and could
+    neither locate nor verify what it listed.
+    """
+    import base64
+
+    staged = await async_client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {
+                "name": "depotgate.stage_artifact",
+                "arguments": {
+                    "root_task_id": "list-fields-task",
+                    "content_base64": base64.b64encode(b"hello").decode(),
+                    "mime_type": "text/plain",
+                    "artifact_role": "final_output",
+                },
+            },
+        },
+    )
+    staged_result = staged.json()["result"]
+
+    listed = await async_client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {
+                "name": "depotgate.list_staged_artifacts",
+                "arguments": {"root_task_id": "list-fields-task"},
+            },
+        },
+    )
+    entries = listed.json()["result"]
+    assert entries, "expected the staged artifact to be listed"
+    entry = entries[0]
+
+    # The listing must agree with what staging reported.
+    assert entry["location"] == staged_result["location"]
+    assert entry["content_hash"] == staged_result["content_hash"]
+    assert entry["content_hash"], "content_hash must not be empty"
+    assert entry["size_bytes"] == staged_result["size_bytes"]

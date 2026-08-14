@@ -456,9 +456,20 @@ async def _handle_list_staged(
         result=[
             {
                 "artifact_id": str(a.artifact_id),
+                # location and content_hash were omitted here while
+                # stage_artifact returned both, so anything reading artifacts
+                # through the listing -- InterView's inventory, for one -- could
+                # not show where an artifact lives or verify it. Receipts carry
+                # pointers and hashes; a listing that drops them cannot support
+                # the same claim.
+                "location": a.location,
+                "content_hash": a.content_hash,
                 "size_bytes": a.size_bytes,
                 "mime_type": a.mime_type,
                 "artifact_role": a.artifact_role.value,
+                "produced_by_receipt_id": (
+                    str(a.produced_by_receipt_id) if a.produced_by_receipt_id else None
+                ),
                 "staged_at": a.staged_at.isoformat(),
             }
             for a in artifacts
