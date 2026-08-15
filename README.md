@@ -102,34 +102,86 @@ deliverable = httpx.post("http://localhost:8000/mcp", json=declare_payload).json
 
 ## Configuration
 
-Environment variables (prefix: `DEPOTGATE_`):
+Environment variables (prefix `DEPOTGATE_`). Generated from the `Settings`
+class; MetaGate bootstrap variables are documented in their own section below.
+
+`DEPOTGATE_API_KEY` is **required** unless `DEPOTGATE_ALLOW_INSECURE_DEV=true`; startup fails without it.
+
+See `.env.example` for a working starting point.
+
+### Server
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HOST` | 0.0.0.0 | Service bind address |
-| `PORT` | 8000 | Service port |
-| `DEBUG` | false | Enable debug mode |
-| `TENANT_ID` | default | Single tenant identifier |
-| `SERVICE_PRINCIPAL_ID` | svc:depotgate | Service principal identifier |
-| `DEFAULT_RECIPIENT_AI` | svc:depotgate | Default recipient AI for emitted receipts |
-| `POSTGRES_HOST` | localhost | PostgreSQL host |
-| `POSTGRES_PORT` | 5432 | PostgreSQL port |
-| `POSTGRES_USER` | depotgate | Database user |
-| `POSTGRES_PASSWORD` | depotgate_local | Database password |
-| `POSTGRES_METADATA_DB` | depotgate_metadata | Metadata database |
-| `POSTGRES_RECEIPTS_DB` | depotgate_receipts | Receipts database |
-| `STORAGE_BACKEND` | filesystem | Storage backend type |
-| `STORAGE_BASE_PATH` | ./data/staging | Staging directory |
-| `STORAGE_MAX_ARTIFACT_SIZE_MB` | 100 | Max artifact size (0=unlimited) |
-| `ENABLED_SINKS` | filesystem | Comma-separated sink list |
-| `SINK_FILESYSTEM_BASE_PATH` | ./data/shipped | Shipped artifacts directory |
-| `RECEIPTGATE_ENDPOINT` |  | ReceiptGate MCP endpoint |
-| `RECEIPTGATE_AUTH_TOKEN` |  | ReceiptGate auth token |
-| `RECEIPTGATE_EMIT_RECEIPTS` | true | Emit LegiVellum receipts to ReceiptGate |
-| `RECEIPTGATE_TIMEOUT_SECONDS` | 10 | ReceiptGate request timeout |
+| `DEPOTGATE_DEBUG` | `false` | Enable debug mode |
+| `DEPOTGATE_HOST` | `0.0.0.0` | Server bind address |
+| `DEPOTGATE_INSTANCE_ID` | `depotgate-1` | Instance identifier |
+| `DEPOTGATE_PORT` | `8000` | Server port |
+| `DEPOTGATE_SERVICE_NAME` | `depotgate` | Service name |
 
-ReceiptGate integration emits LegiVellum receipts for artifact staging,
-shipment completion/rejection, and purge operations when enabled.
+### Database
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEPOTGATE_POSTGRES_HOST` | `localhost` | PostgreSQL host |
+| `DEPOTGATE_POSTGRES_METADATA_DB` | `depotgate_metadata` | Metadata database name |
+| `DEPOTGATE_POSTGRES_PASSWORD` | *(empty)* | PostgreSQL password |
+| `DEPOTGATE_POSTGRES_PORT` | `5432` | PostgreSQL port |
+| `DEPOTGATE_POSTGRES_RECEIPTS_DB` | `depotgate_receipts` | Receipts database name |
+| `DEPOTGATE_POSTGRES_USER` | `depotgate` | PostgreSQL user |
+
+### Authentication
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEPOTGATE_ALLOW_INSECURE_DEV` | `false` | Allow unauthenticated access (dev only) |
+| `DEPOTGATE_API_KEY` | *(empty)* | API key for authentication |
+| `DEPOTGATE_TENANT_ID` | `default` | Tenant identifier |
+
+### Upstream services
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEPOTGATE_RECEIPTGATE_AUTH_TOKEN` | *(empty)* | ReceiptGate auth token |
+| `DEPOTGATE_RECEIPTGATE_EMIT_RECEIPTS` | `true` | Emit LegiVellum receipts to ReceiptGate |
+| `DEPOTGATE_RECEIPTGATE_ENDPOINT` | *(empty)* | ReceiptGate MCP endpoint |
+| `DEPOTGATE_RECEIPTGATE_TIMEOUT_SECONDS` | `10` | ReceiptGate request timeout (seconds) |
+
+### Storage and sinks
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEPOTGATE_ENABLED_SINKS` | `filesystem` | Enabled sinks (comma-separated: filesystem, http) |
+| `DEPOTGATE_SINK_FILESYSTEM_BASE_PATH` | `Path('./data/shipped')` | Base path for shipped artifacts |
+| `DEPOTGATE_SINK_HTTP_ALLOWED_HOSTS` | *(empty)* | Allowlist of hostnames for HTTP sink destinations |
+| `DEPOTGATE_SINK_HTTP_ALLOWED_SCHEMES` | `['http', 'https']` | Allowed URL schemes for HTTP sink destinations |
+| `DEPOTGATE_SINK_HTTP_TIMEOUT_SECONDS` | `30` | HTTP sink timeout in seconds |
+| `DEPOTGATE_STORAGE_BACKEND` | `filesystem` | Storage backend type |
+| `DEPOTGATE_STORAGE_BASE_PATH` | `Path('./data/staging')` | Base path for artifact staging |
+| `DEPOTGATE_STORAGE_MAX_ARTIFACT_SIZE_MB` | `100` | Max artifact size in MB (0 = no limit) |
+
+### Rate limiting
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEPOTGATE_RATE_LIMIT_ENABLED` | `true` | Enable rate limiting |
+| `DEPOTGATE_RATE_LIMIT_REQUESTS_PER_MINUTE` | `200` | Rate limit per minute |
+
+### CORS
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEPOTGATE_CORS_ALLOW_CREDENTIALS` | `true` | Allow credentials in CORS requests |
+| `DEPOTGATE_CORS_ALLOWED_HEADERS` | `['Authorization', 'Content-Type', 'X-Tenant-ID']` | Allowed request headers |
+| `DEPOTGATE_CORS_ALLOWED_METHODS` | `['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']` | Allowed HTTP methods |
+| `DEPOTGATE_CORS_ALLOWED_ORIGINS` | `['http://localhost:3000', 'http://localhost:8080']` | Allowed CORS origins (explicit allowlist for security) |
+
+### Behaviour and limits
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEPOTGATE_DEFAULT_RECIPIENT_AI` | `svc:depotgate` | Default recipient AI for emitted receipts |
+| `DEPOTGATE_SERVICE_PRINCIPAL_ID` | `svc:depotgate` | Service principal identifier for receipt emission |
 
 ## Architecture
 
