@@ -36,15 +36,24 @@ DepotGate exposes MCP over HTTP at `/mcp` with JSON-RPC methods:
 - `tools/call`
 
 **Available MCP Tools:**
-- `stage_artifact` - Stage an artifact in DepotGate
-- `list_staged_artifacts` - List artifacts staged for a task
-- `get_artifact` - Get artifact metadata by ID
-- `declare_deliverable` - Declare a deliverable contract
-- `check_closure` - Check if closure requirements are met
-- `ship` - Ship a deliverable (verifies closure first)
-- `purge` - Purge staged artifacts
-- `depotgate.health` - Health check / service info
+
+Names are namespaced `depotgate.*` per `mcp.naming.md`, and this is what
+`tools/list` reports.
+
+- `depotgate.stage_artifact` - Stage an artifact in DepotGate
+- `depotgate.list_staged_artifacts` - List artifacts staged for a task
+- `depotgate.get_artifact` - Get artifact metadata by ID
+- `depotgate.declare_deliverable` - Declare a deliverable contract
+- `depotgate.check_closure` - Check if closure requirements are met
+- `depotgate.ship` - Ship a deliverable (verifies closure first)
+- `depotgate.purge` - Purge staged artifacts
 - `depotgate.get_deliverable` - Fetch a deliverable by ID
+- `depotgate.health` - Health check / service info
+
+The unprefixed forms (`stage_artifact`, `ship`, …) are still accepted as
+legacy aliases and mapped onto the canonical names, so existing callers keep
+working. New callers should use the prefixed form; the aliases are not
+advertised by `tools/list`.
 
 ## Example Usage
 
@@ -60,7 +69,7 @@ payload = {
     "id": 1,
     "method": "tools/call",
     "params": {
-        "name": "stage_artifact",
+        "name": "depotgate.stage_artifact",
         "arguments": {
             "root_task_id": "task-123",
             "content_base64": base64.b64encode(b"result data").decode(),
@@ -79,7 +88,7 @@ declare_payload = {
     "id": 2,
     "method": "tools/call",
     "params": {
-        "name": "declare_deliverable",
+        "name": "depotgate.declare_deliverable",
         "arguments": {
             "root_task_id": "task-123",
             "artifact_ids": [artifact_id],
@@ -181,6 +190,26 @@ pytest --cov=depotgate
 # Run only unit tests (no DB required)
 pytest tests/test_models.py tests/test_storage.py tests/test_sinks.py
 ```
+
+## MetaGate Bootstrap
+
+On startup this gate asks MetaGate for the topology it belongs to and fills in
+endpoints the operator did not configure. It resolves: `receiptgate` → `receiptgate_endpoint`.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `DEPOTGATE_METAGATE_ENDPOINT` | *(unset)* | MetaGate MCP endpoint. Unset disables bootstrap; the gate starts on configured values alone. |
+| `DEPOTGATE_METAGATE_API_KEY` | *(unset)* | Credential presented to MetaGate |
+| `DEPOTGATE_METAGATE_COMPONENT_KEY` | `depotgate` | Which component in the manifest this process is |
+| `DEPOTGATE_METAGATE_BOOTSTRAP_TIMEOUT_SECONDS` | `5.0` | Per-call timeout |
+
+Bootstrap never prevents startup. Every failure — unreachable, timeout, auth
+rejected, no binding, malformed packet — degrades to a logged warning and
+"carry on with configured values", because a bootstrap authority that can take
+the mesh down would be a hidden master. Explicit configuration always wins;
+bootstrap fills gaps and logs when the mesh disagrees rather than overriding.
+
+See `LegiVellum/docs/canonical/metagate.bootstrap.md` for the full contract.
 
 ## License
 
