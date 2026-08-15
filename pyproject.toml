@@ -23,6 +23,10 @@ dependencies = [
     "python-multipart>=0.0.6",
     "aiofiles>=23.2.0",
     "httpx>=0.26.0",
+    # Canonical receipt protocol. Hard dependency: this gate must not be able
+    # to start without the validator, and must never fall back to posting
+    # unvalidated dictionaries to the ledger.
+    "legivellum",
 ]
 
 [project.optional-dependencies]
@@ -55,3 +59,7 @@ testpaths = ["tests"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
+
+# legivellum is the sibling protocol package, not published to an index.
+[tool.uv.sources]
+legivellum = { path = "../LegiVellum", editable = true }
