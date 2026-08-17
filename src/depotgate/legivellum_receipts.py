@@ -312,8 +312,11 @@ def build_shipment_rejected_receipt(
 
     return _build_receipt(
         tenant_id=tenant_id,
-        task_id=_own_task_id("depot.shipment_rejected", str(manifest.deliverable_id)),
-        obligation_id=derive_ulid("depot.shipment_rejected", str(manifest.deliverable_id)),
+        # `manifest` is not a name in this function -- the parameter is
+        # deliverable_id. Rejecting a shipment raised NameError before it could
+        # build the receipt, so a rejection could never be recorded at all.
+        task_id=_own_task_id("depot.shipment_rejected", str(deliverable_id)),
+        obligation_id=derive_ulid("depot.shipment_rejected", str(deliverable_id)),
         root_task_id=root_task_id,
         principal_ai=principal_ai,
         phase="complete",
@@ -373,8 +376,14 @@ def build_purge_receipt(
 
     return _build_receipt(
         tenant_id=tenant_id,
-        task_id=_own_task_id("depot.purge", str(policy.deliverable_id)),
-        obligation_id=derive_ulid("depot.purge", str(policy.deliverable_id)),
+        # `policy` is a PurgePolicy enum and has no deliverable_id, so this
+        # raised AttributeError before it could build the receipt -- a purge
+        # could never be recorded. A purge has no single deliverable either; it
+        # is one discharge against a root task under one policy, so that pair is
+        # its identity, and purging the same task under a different policy is a
+        # different obligation rather than a collision.
+        task_id=_own_task_id("depot.purge", f"{root_task_id}:{policy.value}"),
+        obligation_id=derive_ulid("depot.purge", root_task_id, policy.value),
         root_task_id=root_task_id,
         principal_ai=principal_ai,
         phase="complete",
