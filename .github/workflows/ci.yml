@@ -60,4 +60,12 @@ jobs:
             --cov-fail-under=55
 
       - name: Docker build
-        run: docker build -t depotgate-ci .
+        # Stack-root context. The image installs the canonical protocol
+        # package from the sibling LegiVellum checkout: `legivellum` is a hard
+        # dependency and is not published to an index, so a repo-scoped context
+        # fails with "No matching distribution found for legivellum".
+        run: |
+          mkdir -p _ctx/DepotGate
+          cp -r _legivellum _ctx/LegiVellum
+          cp -r README.md pyproject.toml src _ctx/DepotGate/
+          docker build -f Dockerfile -t depotgate-ci _ctx
