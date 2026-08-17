@@ -19,6 +19,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Checkout LegiVellum (canonical protocol package)
+        uses: actions/checkout@v4
+        with:
+          repository: PStryder/LegiVellum
+          path: _legivellum
+          fetch-depth: 1
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -28,6 +35,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          # Canonical protocol package first. It is a hard dependency and is
+          # not published to an index, so it comes from the sibling checkout.
+          python -m pip install -e ./_legivellum
           python -m pip install -e ".[dev]"
 
       - name: Dependency health
